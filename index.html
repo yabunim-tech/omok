@@ -1,0 +1,689 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="icon.png"></head><body>
+<title>오목 한 판</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* Layout: 화면 오른쪽 아래에 뜨는 작은 창 — 판만 베이지, 나머지는 흑백
+   톤: 디자인 시스템/oliveyoung-DESIGN.md — 색은 상태 배지에만, 그림자 없이 선으로만 구분. 밝은 화면 하나로 고정 */
+:root {
+  --canvas: #FFFFFF;
+  --paper: #F6F7F9;
+  --ink: #131518;
+  --text: #333333;
+  --muted: #888888;
+  --disabled: #AAAAAA;
+  --chip: #757D86;
+  --neutral: #454C53;
+  --line: #E5E7EA;
+  --line-thin: #EBEBEB;
+  --black: #000000;
+  --flag-win: #9BCE26;   /* 이김 */
+  --flag-lose: #F65C60;  /* 짐 */
+  --board: #E8D7B2;
+  --grid: #2B2620;
+  --sans: Montserrat, "Noto Sans KR", -apple-system, AppleSDGothicNeo, "Apple SD Gothic Neo", Roboto, dotum, 돋움, sans-serif;
+  --mono: Montserrat, "Noto Sans KR", -apple-system, sans-serif;
+  color-scheme: light;
+}
+
+/* 앱(WKWebView)에는 웹 버전의 기본 초기화가 없으므로 직접 둔다 */
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.4;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px;
+  min-height: 100%;
+}
+button { font: inherit; }
+
+/* 떠 있는 게임 창 */
+.game {
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: min(340px, calc(100vw - 32px));
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  z-index: 5;
+}
+.launcher {
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
+}
+
+/* 맥 앱 안에서는 창 전체를 채운다 */
+html.app, html.app body { height: 100%; }
+html.app body { padding: 0; background: var(--canvas); }
+html.app .game { position: static; width: 100%; height: 100%; border: none; }
+html.app .close, html.app .page-note { display: none; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.title { font-weight: 700; font-size: 15px; color: var(--ink); }
+.me {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 1px 8px;
+  font-size: 12px;
+  color: var(--chip);
+  white-space: nowrap;
+}
+.status { display: flex; align-items: center; gap: 6px; margin-left: auto; min-width: 0; }
+.status-text { font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-text.flag { color: #FFFFFF; font-weight: 400; font-size: 12px; line-height: 18px; padding: 0 7px; border-radius: 9px; }
+.status-text.win { background: var(--flag-win); }
+.status-text.lose { background: var(--flag-lose); }
+.count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.dot {
+  flex: none;
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 1.5px solid var(--ink);
+}
+.dot.b { background: var(--ink); }
+.dot.w { background: var(--canvas); }
+.dot.thinking { animation: blink 0.9s steps(2, start) infinite; }
+@keyframes blink { to { visibility: hidden; } }
+
+.board-box { position: relative; padding: 10px 12px; }
+canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 100%;
+  border: 1px solid var(--grid);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+canvas:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+/* 설정: 판 위에 덮는 패널 */
+.settings {
+  position: absolute;
+  inset: 10px 12px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+.group { display: flex; flex-direction: column; gap: 6px; }
+.label { font-size: 12px; font-weight: 700; color: var(--ink); }
+/* 선택지: 알약 모양, 고르면 검정 */
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label {
+  padding: 5px 13px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--canvas);
+  color: var(--chip);
+  cursor: pointer;
+  user-select: none;
+}
+.seg input:checked + label { background: var(--black); border-color: var(--black); color: #FFFFFF; font-weight: 700; }
+.seg input:focus-visible + label { outline: 2px solid var(--ink); outline-offset: 2px; }
+.check { flex-direction: row; align-items: center; gap: 8px; cursor: pointer; color: var(--text); }
+.check input { accent-color: var(--ink); width: 15px; height: 15px; }
+.record { display: flex; gap: 14px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.hint { font-size: 11.5px; color: var(--muted); padding: 8px 10px; background: var(--paper); }
+
+/* 아래 버튼 줄 */
+.foot {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+.btn {
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--canvas);
+  color: var(--neutral);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn.primary { background: var(--black); border-color: var(--black); color: #FFFFFF; font-weight: 700; }
+.btn.on { border-color: var(--ink); color: var(--ink); font-weight: 700; }
+.btn:disabled { color: var(--disabled); cursor: not-allowed; }
+.btn:focus-visible, .close:focus-visible, .linkbtn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.close {
+  width: 26px; height: 26px; padding: 0;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--canvas); color: var(--muted); cursor: pointer;
+}
+.close:hover { color: var(--ink); }
+.linkbtn { border: none; padding: 0; background: none; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; align-self: flex-start; cursor: pointer; }
+.pill {
+  height: 40px; padding: 0 18px;
+  border: none; border-radius: 20px;
+  background: var(--black); color: #FFFFFF; font-weight: 700; cursor: pointer;
+}
+
+.page-note { color: var(--muted); max-width: 40ch; margin: 0; }
+.page-note b { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) { .dot.thinking { animation: none; } }
+</style>
+
+<p class="page-note"><b>오목 한 판</b><br>오른쪽 아래 창에서 바로 두면 돼요.</p>
+
+<button class="pill launcher" id="openBtn" hidden>오목 열기</button>
+
+<section class="game" id="game" aria-label="오목">
+  <div class="bar">
+    <span class="title">오목</span>
+    <span class="me" id="meTag">나 흑</span>
+    <div class="status" aria-live="polite">
+      <span class="dot b" id="statusDot"></span>
+      <span class="status-text" id="statusText">내 차례</span>
+      <span class="count" id="moveCount">0수</span>
+    </div>
+    <button class="close" id="closeBtn" aria-label="창 닫기">×</button>
+  </div>
+
+  <div class="board-box" id="boardBox">
+    <canvas id="board" tabindex="0" aria-label="15줄 오목판. 방향키로 이동, 엔터로 착수"></canvas>
+
+    <div class="settings" id="settings" hidden>
+      <div class="group">
+        <div class="label">상대</div>
+        <div class="seg">
+          <input type="radio" name="mode" id="mode-ai" value="ai" checked><label for="mode-ai">컴퓨터</label>
+          <input type="radio" name="mode" id="mode-pvp" value="pvp"><label for="mode-pvp">둘이서</label>
+        </div>
+      </div>
+      <div class="group" id="aiOptions">
+        <div class="label">내 돌</div>
+        <div class="seg">
+          <input type="radio" name="human" id="human-alt" value="alt" checked><label for="human-alt">번갈아</label>
+          <input type="radio" name="human" id="human-1" value="1"><label for="human-1">늘 흑</label>
+          <input type="radio" name="human" id="human-2" value="2"><label for="human-2">늘 백</label>
+        </div>
+        <div class="label" style="margin-top:6px">난이도</div>
+        <div class="seg">
+          <input type="radio" name="level" id="level-1" value="1"><label for="level-1">쉬움</label>
+          <input type="radio" name="level" id="level-2" value="2" checked><label for="level-2">보통</label>
+          <input type="radio" name="level" id="level-3" value="3"><label for="level-3">어려움</label>
+        </div>
+      </div>
+      <label class="group check">
+        <input type="checkbox" id="numToggle"> 수순 번호 보기
+      </label>
+      <div class="group" id="recordBox">
+        <div class="label">컴퓨터 상대 전적</div>
+        <div class="record"><span id="rWin">0승</span><span id="rLose">0패</span><span id="rDraw">0무</span></div>
+        <button class="linkbtn" id="resetRecord">전적 지우기</button>
+      </div>
+      <div class="hint">'번갈아'면 새 판마다 흑백이 바뀌어요(흑이 먼저 둠). 상대·돌·난이도를 바꾸면 새 판이 시작돼요. 다섯 개 이상 이으면 이기는 자유룰이에요.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <button class="btn primary" id="newBtn">새 판 두기</button>
+    <button class="btn" id="undoBtn">무르기</button>
+    <button class="btn" id="setBtn" aria-expanded="false">설정하기</button>
+  </div>
+</section>
+
+<script>
+(() => {
+  const N = 15;
+  const DIRS = [[0, 1], [1, 0], [1, 1], [1, -1]];
+  const STARS = [[3, 3], [3, 11], [7, 7], [11, 3], [11, 11]];
+  const APP = !!window.__omokApp;
+  if (APP) document.documentElement.classList.add("app");
+
+  const canvas = document.getElementById("board");
+  const ctx = canvas.getContext("2d");
+  const $ = (id) => document.getElementById(id);
+
+  let board, moves, turn, over, winLine, winner;
+  let mode = "ai", human = 1, level = 2, showNums = false;
+  let colorPref = "alt"; // "alt" = 판마다 흑백 교대, "1"/"2" = 늘 그 색
+  let thinking = false, aiTimer = null, overAt = 0;
+  let hover = null, kbd = null;
+  let size = 0, dpr = 1;
+  let record = { win: 0, lose: 0, draw: 0 };
+
+  // 전적: 맥 앱은 앱 옆 records.json, 웹은 이 브라우저에만 저장
+  try {
+    const saved = APP ? window.__omokRecord : JSON.parse(localStorage.getItem("omok-record") || "null");
+    if (saved) record = { ...record, ...saved };
+  } catch (e) {}
+  if (record.human === 2) human = 2; // 지난번에 이어서 교대
+  function saveRecord() {
+    const json = JSON.stringify(record);
+    if (APP) { try { window.webkit.messageHandlers.save.postMessage(json); } catch (e) {} return; }
+    try { localStorage.setItem("omok-record", json); } catch (e) {}
+  }
+
+  // ---------- 게임 상태 ----------
+  const at = (r, c) => (r < 0 || c < 0 || r >= N || c >= N) ? -1 : board[r][c];
+
+  function checkWin(r, c, p) {
+    for (const [dr, dc] of DIRS) {
+      const cells = [[r, c]];
+      for (let i = 1; at(r + dr * i, c + dc * i) === p; i++) cells.push([r + dr * i, c + dc * i]);
+      for (let i = 1; at(r - dr * i, c - dc * i) === p; i++) cells.unshift([r - dr * i, c - dc * i]);
+      if (cells.length >= 5) return cells;
+    }
+    return null;
+  }
+
+  // 수순을 처음부터 다시 놓아 상태를 만든다 (새 판·무르기·복원 공용).
+  function loadMoves(list) {
+    board = Array.from({ length: N }, () => Array(N).fill(0));
+    moves = []; turn = 1; over = false; winLine = null; winner = 0;
+    for (const [r, c] of list) {
+      board[r][c] = turn;
+      moves.push([r, c]);
+      const line = checkWin(r, c, turn);
+      if (line) { over = true; winLine = line; winner = turn; break; }
+      if (moves.length === N * N) { over = true; break; }
+      turn = 3 - turn;
+    }
+  }
+
+  function place(r, c) {
+    if (over || board[r][c]) return;
+    board[r][c] = turn;
+    moves.push([r, c]);
+    const line = checkWin(r, c, turn);
+    if (line) {
+      over = true; winLine = line; winner = turn; overAt = Date.now();
+      if (mode === "ai") { winner === human ? record.win++ : record.lose++; saveRecord(); }
+    } else if (moves.length === N * N) {
+      over = true; overAt = Date.now();
+      if (mode === "ai") { record.draw++; saveRecord(); }
+    } else {
+      turn = 3 - turn;
+    }
+    render();
+    maybeAI();
+  }
+
+  // flip: '새 판'을 눌렀을 때만 흑백을 바꾼다 (설정 변경으로 다시 시작할 땐 그대로).
+  function newGame(flip) {
+    clearTimeout(aiTimer); thinking = false;
+    if (flip && colorPref === "alt" && mode === "ai") {
+      human = 3 - human;
+      record.human = human;
+      saveRecord();
+    }
+    loadMoves([]);
+    render();
+    maybeAI();
+  }
+
+  function undo() {
+    if (thinking || over || !moves.length) return;
+    let list = moves.slice(0, -1);
+    if (mode === "ai") {
+      // 내 차례가 될 때까지 되돌린다 (컴퓨터 수 + 내 수).
+      while (list.length && (list.length % 2 === 0 ? 1 : 2) !== human) list = list.slice(0, -1);
+    }
+    loadMoves(list);
+    render();
+    maybeAI();
+  }
+
+  function maybeAI() {
+    if (mode !== "ai" || over || turn === human) return;
+    thinking = true;
+    render();
+    aiTimer = setTimeout(() => {
+      const [r, c] = aiMove();
+      thinking = false;
+      place(r, c);
+    }, 320);
+  }
+
+  // ---------- 컴퓨터 ----------
+  function shape(cnt, open) {
+    if (cnt >= 5) return 1e6;
+    if (cnt === 4) return open === 2 ? 1e5 : open === 1 ? 1e4 : 0;
+    if (cnt === 3) return open === 2 ? 5000 : open === 1 ? 500 : 0;
+    if (cnt === 2) return open === 2 ? 300 : open === 1 ? 50 : 0;
+    return open === 2 ? 10 : open === 1 ? 2 : 0;
+  }
+  // 한 칸 띈 모양(예: ●●_●): 빈칸을 채우면 이어지는 돌 수 t 기준
+  function gapShape(t, open) {
+    if (t >= 4) return 1e4;
+    if (t === 3) return open === 2 ? 4000 : open === 1 ? 400 : 0;
+    return open === 2 ? 100 : 20;
+  }
+
+  function scan(r, c, dr, dc, p) {
+    let n = 0, i = 1;
+    while (at(r + dr * i, c + dc * i) === p) { n++; i++; }
+    const endOpen = at(r + dr * i, c + dc * i) === 0;
+    let gap = 0, gapOpen = false;
+    if (endOpen) {
+      let j = i + 1;
+      while (at(r + dr * j, c + dc * j) === p) { gap++; j++; }
+      gapOpen = at(r + dr * j, c + dc * j) === 0;
+    }
+    return { n, endOpen, gap, gapOpen };
+  }
+
+  function dirScore(r, c, dr, dc, p) {
+    const f = scan(r, c, dr, dc, p), b = scan(r, c, -dr, -dc, p);
+    const cnt = 1 + f.n + b.n;
+    let s = shape(cnt, f.endOpen + b.endOpen);
+    if (cnt >= 5) return s;
+    if (f.gap) s = Math.max(s, gapShape(cnt + f.gap, b.endOpen + f.gapOpen));
+    if (b.gap) s = Math.max(s, gapShape(cnt + b.gap, f.endOpen + b.gapOpen));
+    return s;
+  }
+
+  function cellScore(r, c, p) {
+    let sum = 0, strong = 0;
+    for (const [dr, dc] of DIRS) {
+      const s = dirScore(r, c, dr, dc, p);
+      sum += s;
+      if (s >= 4000) strong++;
+    }
+    if (strong >= 2) sum += 2e4; // 4·3, 3·3 같은 겹수
+    return sum;
+  }
+
+  function candidates() {
+    const list = [];
+    for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+      if (board[r][c]) continue;
+      let near = false;
+      for (let dr = -2; dr <= 2 && !near; dr++)
+        for (let dc = -2; dc <= 2; dc++)
+          if (at(r + dr, c + dc) > 0) { near = true; break; }
+      if (near) list.push([r, c]);
+    }
+    return list;
+  }
+
+  function ranked(me, defW) {
+    const opp = 3 - me;
+    return candidates().map(([r, c]) => {
+      const atk = cellScore(r, c, me), def = cellScore(r, c, opp);
+      const center = -(Math.abs(r - 7) + Math.abs(c - 7)) * 0.5;
+      return { r, c, atk, def, s: atk + def * defW + center };
+    }).sort((a, b) => b.s - a.s);
+  }
+
+  function aiMove() {
+    if (!moves.length) return [7, 7];
+    const me = turn;
+    if (level === 1) {
+      const list = ranked(me, 0.55);
+      if (list[0].atk >= 1e6 || list[0].def >= 1e6) return [list[0].r, list[0].c];
+      const pool = list.slice(0, Math.random() < 0.3 ? 8 : 4);
+      const m = pool[Math.floor(Math.random() * pool.length)];
+      return [m.r, m.c];
+    }
+    if (level === 2) {
+      const list = ranked(me, 0.9);
+      const best = list[0].s;
+      const pool = list.filter((m) => m.s >= best * 0.93);
+      const m = pool[Math.floor(Math.random() * pool.length)];
+      return [m.r, m.c];
+    }
+    // 어려움: 상위 후보마다 상대의 최선 응수까지 한 수 더 내다본다.
+    const list = ranked(me, 1.0);
+    if (list[0].atk >= 1e6 || list[0].def >= 1e6) return [list[0].r, list[0].c];
+    let bestMove = list[0], bestVal = -Infinity;
+    for (const m of list.slice(0, 8)) {
+      board[m.r][m.c] = me;
+      const reply = ranked(3 - me, 1.0)[0];
+      board[m.r][m.c] = 0;
+      const val = m.s - (reply ? reply.atk * 0.8 : 0);
+      if (val > bestVal) { bestVal = val; bestMove = m; }
+    }
+    return [bestMove.r, bestMove.c];
+  }
+
+  // ---------- 그리기 (플랫 2D: 그라데이션·그림자 없음) ----------
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const geom = () => {
+    const cell = size / (N + 0.2);
+    return { pad: cell * 0.6, cell };
+  };
+  const toXY = (r, c) => { const { pad, cell } = geom(); return [pad + c * cell, pad + r * cell]; };
+
+  function drawStone(x, y, rad, p, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(x, y, rad, 0, Math.PI * 2);
+    ctx.fillStyle = p === 1 ? "#111111" : "#FFFFFF";
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.5, rad * 0.14);
+    ctx.strokeStyle = "#111111";
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw() {
+    if (!size) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const grid = css("--grid");
+    ctx.fillStyle = css("--board");
+    ctx.fillRect(0, 0, size, size);
+
+    const { pad, cell } = geom();
+    const end = pad + cell * (N - 1);
+    ctx.strokeStyle = grid;
+    ctx.lineWidth = 1;
+    for (let i = 0; i < N; i++) {
+      const p = Math.round(pad + i * cell) + 0.5;
+      ctx.beginPath(); ctx.moveTo(pad, p); ctx.lineTo(end, p); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(p, pad); ctx.lineTo(p, end); ctx.stroke();
+    }
+    ctx.fillStyle = grid;
+    for (const [r, c] of STARS) {
+      const [x, y] = toXY(r, c);
+      ctx.fillRect(Math.round(x) - 2, Math.round(y) - 2, 5, 5);
+    }
+
+    const rad = cell * 0.43;
+    const winSet = new Set((winLine || []).map(([r, c]) => r * N + c));
+    moves.forEach(([r, c], i) => {
+      const [x, y] = toXY(r, c);
+      const p = board[r][c];
+      drawStone(x, y, rad, p);
+      const fg = p === 1 ? "#FFFFFF" : "#111111";
+      if (winSet.has(r * N + c)) {
+        ctx.beginPath(); ctx.arc(x, y, rad * 0.42, 0, Math.PI * 2);
+        ctx.fillStyle = fg; ctx.fill();
+      } else if (showNums) {
+        ctx.fillStyle = fg;
+        ctx.font = `600 ${rad * (i + 1 >= 100 ? 0.75 : 0.95)}px ${css("--mono")}`;
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(String(i + 1), x, y + rad * 0.05);
+      } else if (i === moves.length - 1) {
+        ctx.fillStyle = fg;
+        const s = rad * 0.5;
+        ctx.fillRect(x - s / 2, y - s / 2, s, s);
+      }
+    });
+
+    const ghost = kbd || hover;
+    if (ghost && !over && !thinking && board[ghost[0]][ghost[1]] === 0 && (mode === "pvp" || turn === human)) {
+      const [x, y] = toXY(ghost[0], ghost[1]);
+      drawStone(x, y, rad, turn, 0.35);
+    }
+    if (kbd) {
+      const [x, y] = toXY(kbd[0], kbd[1]);
+      ctx.strokeStyle = "#111111"; ctx.lineWidth = 2;
+      ctx.strokeRect(x - rad - 2, y - rad - 2, rad * 2 + 4, rad * 2 + 4);
+    }
+
+    // 끝난 판: 아래쪽에 다음 판 안내 띠
+    if (over) {
+      const h = cell * 1.5;
+      ctx.fillStyle = "#111111";
+      ctx.fillRect(0, size - h, size, h);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = `600 ${Math.max(11, cell * 0.6)}px ${css("--sans")}`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("판을 누르면 다음 판", size / 2, size - h / 2);
+    }
+  }
+
+  function updateUI() {
+    const dot = $("statusDot");
+    const name = (p) => (p === 1 ? "흑" : "백");
+    let text;
+    if (over && winner) {
+      text = mode === "ai" ? (winner === human ? "이겼어요!" : "컴퓨터 승") : `${name(winner)} 승리`;
+      dot.className = "dot " + (winner === 1 ? "b" : "w");
+    } else if (over) {
+      text = "무승부";
+      dot.className = "dot w";
+    } else {
+      text = mode === "ai" ? (thinking ? "생각 중…" : "내 차례") : `${name(turn)} 차례`;
+      dot.className = "dot " + (turn === 1 ? "b" : "w") + (thinking ? " thinking" : "");
+    }
+    $("statusText").textContent = text;
+    // 승부 결과만 색 배지로: 이김 = 연두, 짐 = 빨강 (둘이서 모드는 승자 배지)
+    const result = over && winner ? (mode === "ai" && winner !== human ? "lose" : "win") : "";
+    $("statusText").className = "status-text" + (result ? ` flag ${result}` : "");
+    $("moveCount").textContent = moves.length + "수";
+    $("meTag").hidden = mode !== "ai";
+    $("meTag").textContent = "나 " + name(human);
+    $("undoBtn").disabled = thinking || over || !moves.length || (mode === "ai" && moves.length < (human === 1 ? 1 : 2));
+    $("aiOptions").hidden = mode !== "ai";
+    $("recordBox").hidden = mode !== "ai";
+    $("rWin").textContent = record.win + "승";
+    $("rLose").textContent = record.lose + "패";
+    $("rDraw").textContent = record.draw + "무";
+  }
+
+  function render() { draw(); updateUI(); }
+
+  function resize() {
+    const w = Math.floor(canvas.clientWidth);
+    if (!w) return;
+    dpr = window.devicePixelRatio || 1;
+    size = w;
+    canvas.width = w * dpr;
+    canvas.height = w * dpr;
+    draw();
+  }
+
+  // ---------- 입력 ----------
+  function cellAt(ev) {
+    const rect = canvas.getBoundingClientRect();
+    const { pad, cell } = geom();
+    const c = Math.round((ev.clientX - rect.left - pad) / cell);
+    const r = Math.round((ev.clientY - rect.top - pad) / cell);
+    return (r >= 0 && c >= 0 && r < N && c < N) ? [r, c] : null;
+  }
+  const canPlay = () => !over && !thinking && (mode === "pvp" || turn === human);
+
+  canvas.addEventListener("click", (ev) => {
+    // 승부가 끝난 판은 아무 곳이나 눌러도 다음 판 (끝난 직후 더블클릭은 무시)
+    if (over) { if (Date.now() - overAt > 400) restart(true); return; }
+    const cell = cellAt(ev);
+    kbd = null;
+    if (cell && canPlay()) place(cell[0], cell[1]);
+  });
+  canvas.addEventListener("pointermove", (ev) => {
+    if (ev.pointerType !== "mouse") return;
+    const cell = cellAt(ev);
+    if (String(cell) !== String(hover)) { hover = cell; draw(); }
+  });
+  canvas.addEventListener("pointerleave", () => { hover = null; draw(); });
+  canvas.addEventListener("keydown", (ev) => {
+    const step = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[ev.key];
+    if (step) {
+      ev.preventDefault();
+      kbd = kbd || [7, 7];
+      kbd = [Math.min(N - 1, Math.max(0, kbd[0] + step[0])), Math.min(N - 1, Math.max(0, kbd[1] + step[1]))];
+      draw();
+    } else if ((ev.key === "Enter" || ev.key === " ") && over) {
+      ev.preventDefault();
+      restart(true);
+    } else if ((ev.key === "Enter" || ev.key === " ") && kbd) {
+      ev.preventDefault();
+      if (canPlay()) place(kbd[0], kbd[1]);
+    }
+  });
+  canvas.addEventListener("blur", () => { kbd = null; draw(); });
+
+  function toggleSettings(open) {
+    $("settings").hidden = !open;
+    $("setBtn").classList.toggle("on", open);
+    $("setBtn").setAttribute("aria-expanded", String(open));
+  }
+  const restart = (flip) => { toggleSettings(false); newGame(flip === true); };
+
+  document.querySelectorAll('input[name="mode"]').forEach((el) =>
+    el.addEventListener("change", () => { mode = el.value; restart(); }));
+  document.querySelectorAll('input[name="human"]').forEach((el) =>
+    el.addEventListener("change", () => {
+      colorPref = el.value;
+      human = colorPref === "alt" ? 1 : Number(colorPref);
+      record.human = human; saveRecord();
+      restart();
+    }));
+  document.querySelectorAll('input[name="level"]').forEach((el) =>
+    el.addEventListener("change", () => { level = Number(el.value); restart(); }));
+  $("numToggle").addEventListener("change", (ev) => { showNums = ev.target.checked; draw(); });
+  $("newBtn").addEventListener("click", () => restart(true));
+  $("undoBtn").addEventListener("click", undo);
+  $("setBtn").addEventListener("click", () => toggleSettings($("settings").hidden));
+  $("resetRecord").addEventListener("click", () => { record = { win: 0, lose: 0, draw: 0 }; saveRecord(); updateUI(); });
+  $("closeBtn").addEventListener("click", () => { $("game").hidden = true; $("openBtn").hidden = false; });
+  $("openBtn").addEventListener("click", () => { $("game").hidden = false; $("openBtn").hidden = true; resize(); });
+
+  new ResizeObserver(resize).observe(canvas);
+  if (document.fonts) document.fonts.ready.then(draw);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", draw);
+
+  // ---------- 시작 (페이지를 고쳐 다시 올려도 두던 판 유지) ----------
+  window.claude?.hot?.snapshot?.(() => ({ moves, mode, human, colorPref, level, showNums }));
+  function start(data) {
+    if (data && Array.isArray(data.moves)) {
+      mode = data.mode || mode; human = data.human || human; level = data.level || level; showNums = !!data.showNums;
+      colorPref = data.colorPref || colorPref;
+      $("mode-" + mode).checked = true;
+      $("human-" + colorPref).checked = true;
+      $("level-" + level).checked = true;
+      $("numToggle").checked = showNums;
+      loadMoves(data.moves);
+    } else {
+      loadMoves([]);
+    }
+    resize();
+    render();
+    maybeAI();
+  }
+  window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+})();
+</script>
+</body></html>
