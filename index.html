@@ -435,28 +435,33 @@ canvas:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     }).sort((a, b) => b.s - a.s);
   }
 
-  // 난이도
-  // 쉬움: 오목 완성·막기는 대체로 하지만, 열린 셋은 자주 내버려 두고 좋은 수 몇 개 중 아무거나 둔다.
-  // 보통: 오목 완성·막기는 꼭 하고, 넷은 막는다. 셋 수비는 느슨하고 가끔 한눈판다.
+  // 난이도: 수비를 얼마나 꼼꼼히 하는지로 나눈다.
+  // 쉬움: 오목 막기는 대체로, 열린 셋 막기는 7번에 1번 정도.
+  // 보통: 오목 막기는 꼭, 열린 셋 막기는 3번에 2번 정도. 나머지는 좋은 수 몇 개 중 하나.
   // 어려움: 급한 수를 순서대로 챙기고, 상대의 가장 좋은 응수까지 따져서 둔다.
+  const SKILL = {
+    1: { blockFive: 0.8,  blockThree: 0.15, defW: 0.6, pool: 6 },
+    2: { blockFive: 1,    blockThree: 0.65, defW: 0.8, pool: 4 },
+  };
   function aiMove() {
     if (!moves.length) return [7, 7];
     const me = turn, opp = 3 - me;
-    const pickFrom = (pool) => { const m = pool[Math.floor(Math.random() * pool.length)]; return [m.r, m.c]; };
-    if (level === 1) {
-      const list = ranked(me, 0.5);
+    if (level !== 3) {
+      const k = SKILL[level];
+      const list = ranked(me, k.defW);
       const win = list.find((m) => m.atk >= 1e6);
-      if (win && Math.random() < 0.9) return [win.r, win.c];
-      const block = list.find((m) => m.def >= 1e6);
-      if (block && Math.random() < 0.8) return [block.r, block.c];
-      return pickFrom(list.slice(0, 5));
-    }
-    if (level === 2) {
-      const list = ranked(me, 0.7);
-      const urgent = list.find((m) => m.atk >= 1e6) || list.find((m) => m.def >= 1e6) ||
-                     list.find((m) => m.atk >= 1e5) || list.find((m) => m.def >= 1e4);
-      if (urgent) return [urgent.r, urgent.c];
-      return pickFrom(list.slice(0, Math.random() < 0.3 ? 6 : 3));
+      if (win) return [win.r, win.c];
+      const five = list.find((m) => m.def >= 1e6 || m.def >= 1e4 && m.def < 1e5);
+      if (five && Math.random() < k.blockFive) return [five.r, five.c];
+      const four = list.find((m) => m.atk >= 1e5);
+      if (four) return [four.r, four.c];
+      const three = list.find((m) => m.def >= 4000);
+      if (three && Math.random() < k.blockThree) return [three.r, three.c];
+      // 막지 않기로 했으면 공격 위주로 고른다(수비 수는 후보에서 뺀다).
+      let pool = ranked(me, 0.15).filter((m) => m.def < 4000 || m.atk >= 4000).slice(0, k.pool);
+      if (!pool.length) pool = list.slice(0, k.pool);
+      const m = pool[Math.floor(Math.random() * pool.length)];
+      return [m.r, m.c];
     }
     // 우선순위: 오목 완성 > 오목 막기 > 열린 넷 만들기 > 상대 열린 넷·겹수 막기 > 내 겹수 만들기
     const list = ranked(me, 1.0);
