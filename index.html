@@ -435,31 +435,28 @@ canvas:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
     }).sort((a, b) => b.s - a.s);
   }
 
-  // 난이도 폭을 넓혔다.
-  // 쉬움: 자기 오목은 놓치지 않지만 막기는 자주 놓치고, 대체로 아무 데나 둔다.
-  // 보통: 이기는 수·막는 수는 꼭 두고, 나머지는 좋은 수 몇 개 중에서 고른다.
-  // 어려움: 내 수 → 상대 응수 → 내 다음 수까지 세 수를 읽고, 상대가 가장 잘 받았을 때도 유리한 수를 고른다.
+  // 난이도
+  // 쉬움: 오목 완성·막기는 대체로 하지만, 열린 셋은 자주 내버려 두고 좋은 수 몇 개 중 아무거나 둔다.
+  // 보통: 오목 완성·막기는 꼭 하고, 넷은 막는다. 셋 수비는 느슨하고 가끔 한눈판다.
+  // 어려움: 급한 수를 순서대로 챙기고, 상대의 가장 좋은 응수까지 따져서 둔다.
   function aiMove() {
     if (!moves.length) return [7, 7];
     const me = turn, opp = 3 - me;
+    const pickFrom = (pool) => { const m = pool[Math.floor(Math.random() * pool.length)]; return [m.r, m.c]; };
     if (level === 1) {
-      const list = ranked(me, 0.3);
+      const list = ranked(me, 0.5);
       const win = list.find((m) => m.atk >= 1e6);
-      if (win) return [win.r, win.c];
+      if (win && Math.random() < 0.9) return [win.r, win.c];
       const block = list.find((m) => m.def >= 1e6);
-      if (block && Math.random() < 0.6) return [block.r, block.c];
-      const pool = list.slice(0, 12);
-      const m = pool[Math.floor(Math.random() * pool.length)];
-      return [m.r, m.c];
+      if (block && Math.random() < 0.8) return [block.r, block.c];
+      return pickFrom(list.slice(0, 5));
     }
     if (level === 2) {
-      const list = ranked(me, 0.9);
-      const urgent = list.find((m) => m.atk >= 1e6) || list.find((m) => m.def >= 1e6);
+      const list = ranked(me, 0.7);
+      const urgent = list.find((m) => m.atk >= 1e6) || list.find((m) => m.def >= 1e6) ||
+                     list.find((m) => m.atk >= 1e5) || list.find((m) => m.def >= 1e4);
       if (urgent) return [urgent.r, urgent.c];
-      const best = list[0].s;
-      const pool = list.filter((m) => m.s >= best - Math.abs(best) * 0.2).slice(0, 4);
-      const m = pool[Math.floor(Math.random() * pool.length)];
-      return [m.r, m.c];
+      return pickFrom(list.slice(0, Math.random() < 0.3 ? 6 : 3));
     }
     // 우선순위: 오목 완성 > 오목 막기 > 열린 넷 만들기 > 상대 열린 넷·겹수 막기 > 내 겹수 만들기
     const list = ranked(me, 1.0);
